@@ -25,7 +25,7 @@ cri-o)
   IMAGE_KUBE=kubernetes-crio
   ;;
 esac
-if grep k3s <<<"$KUBE"; then
+if [[ "$KUBE_TYPE" == k3s ]]; then
   IMAGE_KUBE=k3s
 fi
 
@@ -34,7 +34,7 @@ fi
 echo "Resolving versions in $(pwd)"
 rm -rf .versions
 mkdir -p .versions
-for file in $(pwd)/.github/versions/${part:-*}/CHANGELOG*; do
+for file in "$(pwd)"/.github/versions/${part:-*}/CHANGELOG*; do
   K8S_MD=${file##*/}
   case $CRI_TYPE in
   containerd | docker)
@@ -52,8 +52,8 @@ for file in $(pwd)/.github/versions/${part:-*}/CHANGELOG*; do
     esac
     ;;
   esac
-  while IFS= read vKUBE; do
-    if [[ "$allBuild" == true ]]; then
+  while IFS= read -r vKUBE; do
+    if [[ "${allBuild:-}" == true ]]; then
       echo "$vKUBE" >>".versions/$K8S_MD"
     else
       case $IMAGE_HUB_REGISTRY in
@@ -74,12 +74,10 @@ for file in $(pwd)/.github/versions/${part:-*}/CHANGELOG*; do
     until curl -sL "https://github.com/kubernetes/kubernetes/raw/master/CHANGELOG/$K8S_MD"; do sleep 3; done |
       grep -E '^- \[v[0-9\.]+\]' | awk '{print $2}' | awk -F\[ '{print $2}' | awk -F\] '{print $1}' >".versions/$K8S_MD.cached"
     head -n 1 ".versions/$K8S_MD.cached" >".versions/$K8S_MD.latest"
-    case $KUBE_TYPE in
-    k3s)
+    if [[ "$KUBE_TYPE" == k3s ]]; then
       git ls-remote --refs --sort="-version:refname" --tags "https://github.com/k3s-io/k3s.git" | cut -d/ -f3- | grep -E "^$(cut -d. -f-2 ".versions/$K8S_MD.latest").[0-9]+\+k3s[0-9]$" | head -n 1 >".versions/$K8S_MD.cached"
       cp ".versions/$K8S_MD.cached" ".versions/$K8S_MD.latest"
-      ;;
-    esac
+    fi
     cat ".versions/$K8S_MD.cached"
   )
   [[ -s ".versions/$K8S_MD" ]] || cp ".versions/$K8S_MD.latest" ".versions/$K8S_MD"
@@ -90,12 +88,12 @@ for file in $(pwd)/.github/versions/${part:-*}/CHANGELOG*; do
     {
       cut -dv -f 2 ".versions/$K8S_MD" | head -n 1
       cut -dv -f 2 ".versions/$K8S_MD" | tail -n 1
-    } | sort | uniq | awk '{printf "{\"'version'\":\"%s\",\"'arch'\":\"amd64\"},{\"'version'\":\"%s\",\"'arch'\":\"arm64\"},",$1,$1}' >>.versions/versions_arch.txt
+    } | sort | uniq | awk '{printf "{\"version\":\"%s\",\"arch\":\"amd64\"},{\"version\":\"%s\",\"arch\":\"arm64\"},",$1,$1}' >>.versions/versions_arch.txt
   else
     cut -dv -f 2 ".versions/$K8S_MD" |
-      awk '{printf "{\"'version'\":\"%s\",\"'arch'\":\"amd64\"},{\"'version'\":\"%s\",\"'arch'\":\"arm64\"},",$1,$1}' >>.versions/versions_arch.txt
+      awk '{printf "{\"version\":\"%s\",\"arch\":\"amd64\"},{\"version\":\"%s\",\"arch\":\"arm64\"},",$1,$1}' >>.versions/versions_arch.txt
   fi
 done
 SET_MATRIX=$(cat .versions/versions_arch.txt)
 echo "{\"include\":[${SET_MATRIX%?}]}" | yq -P
-echo "matrix={\"include\":[${SET_MATRIX%?}]}" >>$GITHUB_OUTPUT
+echo "matrix={\"include\":[${SET_MATRIX%?}]}" >>"$GITHUB_OUTPUT"
