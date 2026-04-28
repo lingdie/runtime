@@ -6,7 +6,7 @@ on:
         description: 'sealos patch image for development.eg.ghcr.io/labring/sealos-patch:latest'
         required: false
       part:
-        description: 'exec part.0,1,2,3,4,5'
+        description: 'exec part.0,1,2,3,4,5,6'
         required: true
         default: 0
       allbuild:
@@ -110,4 +110,3 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
           version: ${{ matrix.version }}-${{ env.sealoslatest }}
         run: .github/scripts/manifest.sh ${{ secrets.D_REGISTRY_TOKEN }}
-

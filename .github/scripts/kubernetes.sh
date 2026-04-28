@@ -7,16 +7,18 @@ readonly ERR_CODE=127
 readonly ARCH=${arch?}
 readonly CRI_TYPE=${criType?}
 readonly KUBE_TYPE=${kubeType:-k8s}
-readonly KUBE=${kubeVersion?}
-if [[ "$sealoslatest" == latest ]]; then
+readonly KUBE_RAW=${kubeVersion?}
+readonly KUBE="${KUBE_RAW#v}"
+if [[ "${sealoslatest:-}" == latest ]]; then
   export sealosPatch="ghcr.io/labring/sealos-patch:latest"
   sealoslatest=$(until curl -sL "https://api.github.com/repos/labring/sealos/releases/latest" | grep tarball_url; do sleep 3; done | awk -F\" '{print $(NF-1)}' | awk -F/ '{print $NF}' | cut -dv -f2)
 fi
 readonly SEALOS=${sealoslatest?}
+readonly SEALOS_PATCH="${sealosPatch:-}"
 
 readonly KUBE_XY="${KUBE%.*}"
 readonly SEALOS_XYZ="${SEALOS%%-*}"
-if [[ "${SEALOS_XYZ//./}" -le 433 ]] && [[ $KUBE_TYPE == k3s ]] && [[ -z "$sealosPatch" ]]; then
+if [[ "${SEALOS_XYZ//./}" -le 433 ]] && [[ $KUBE_TYPE == k3s ]] && [[ -z "$SEALOS_PATCH" ]]; then
   echo "INFO::skip $KUBE(build for k3s) when $SEALOS(sealos<=4.3.3)"
   exit
 fi
@@ -45,17 +47,17 @@ mkdir -p bin cri opt images/shim
 
 MOUNT_CRI=$(sudo buildah mount "$(sudo buildah from "$IMAGE_CACHE_NAME:cri-$ARCH")")
 # Check support for kube-v1.26+
-if [[ "${KUBE_XY//./}" -ge 126 ]] && [[ "${SEALOS_XYZ//./}" -le 413 ]] && [[ -z "$sealosPatch" ]]; then
+if [[ "${KUBE_XY//./}" -ge 126 ]] && [[ "${SEALOS_XYZ//./}" -le 413 ]] && [[ -z "$SEALOS_PATCH" ]]; then
   echo "INFO::skip $KUBE(kube>=1.26) when $SEALOS(sealos<=4.1.3)"
   echo https://kubernetes.io/blog/2022/11/18/upcoming-changes-in-kubernetes-1-26/#cri-api-removal
   exit
 fi
 
 # image-cri-shim sealctl
-if [[ -n "$sealosPatch" ]]; then
+if [[ -n "$SEALOS_PATCH" ]]; then
   rmdir "$PATCH"
   sudo docker run --rm -v "/usr/bin:/pwd" --entrypoint /bin/sh ghcr.io/labring/sealos:latest -c "cp -a /usr/bin/sealos /pwd"
-  sudo cp -au "$(sudo buildah mount "$(sudo buildah from "$sealosPatch-$ARCH")")" "$PATCH"
+  sudo cp -au "$(sudo buildah mount "$(sudo buildah from "$SEALOS_PATCH-$ARCH")")" "$PATCH"
   tree "$PATCH"
   sudo cp -au "$PATCH"/* .
 else
@@ -120,7 +122,7 @@ if grep k3s <<<"$KUBE"; then
 fi
 
 # define ImageTag for kube
-if [[ "${SEALOS//./}" =~ ^[0-9]+$ ]] && [[ -z "$sealosPatch" ]]; then
+if [[ "${SEALOS//./}" =~ ^[0-9]+$ ]] && [[ -z "$SEALOS_PATCH" ]]; then
   readonly RELEASE=stable
   if [[ "$SEALOS" == "$(
     until curl -sL "https://api.github.com/repos/labring/sealos/releases/latest"; do sleep 3; done | grep tarball_url | awk -F\" '{print $(NF-1)}' | awk -F/ '{print $NF}' | cut -dv -f2
@@ -181,14 +183,14 @@ find . -type f -exec file {} \; | grep -E "(executable,|/ld-)" | awk -F: '{print
 tree -L 5
 # shellcheck disable=SC2046
 sudo sealos build $(
-  cat <<EOF | while read -r kv; do echo --label=$kv; done | xargs
+  cat <<EOF | while read -r kv; do echo --label="$kv"; done | xargs
 sealos.io.type=rootfs
 sealos.io.version=v1beta1
 version=v${KUBE%+*}
 image=$ipvsImage
 EOF
 ) $(
-  cat <<EOF | while read -r kv; do echo --env=$kv; done | xargs
+  cat <<EOF | while read -r kv; do echo --env="$kv"; done | xargs
 defaultVIP=10.103.97.2
 sandboxImage=${pauseImage#*/}
 EOF
@@ -277,7 +279,7 @@ echo "SEALOS_STATUS => $SEALOS_RUN"
       echo -n >"/tmp/$IMAGE_HUB_REGISTRY.v$KUBE-$ARCH.images"
       # check images
       for IMAGE_NAME in "${IMAGE_PUSH_NAME[@]}"; do
-        if [[ "$allBuild" != true ]]; then
+        if [[ "${allBuild:-}" != true ]]; then
           if [[ "${KUBE_XY//./}" -eq 127 ]]; then
             echo "$IMAGE_NAME" >>"/tmp/$IMAGE_HUB_REGISTRY.v$KUBE-$ARCH.images"
             continue
@@ -286,7 +288,7 @@ echo "SEALOS_STATUS => $SEALOS_RUN"
           docker.io)
             if until curl -sL "https://hub.docker.com/v2/repositories/$IMAGE_HUB_REPO/$IMAGE_KUBE/tags/${IMAGE_NAME##*:}"; do sleep 3; done |
               grep digest >/dev/null; then
-              if ! grep "$KUBE" <<<"$${IMAGE_NAME##*:}" &>/dev/null; then
+              if ! grep "$KUBE" <<<"${IMAGE_NAME##*:}" &>/dev/null; then
                 # always push for kube 1.xx(DEV)
                 echo "$IMAGE_NAME" >>"/tmp/$IMAGE_HUB_REGISTRY.v$KUBE-$ARCH.images"
               else

@@ -14,23 +14,25 @@ readonly IMAGE_HUB_PASSWORD=${password?}
 readonly IMAGE_CACHE_NAME="ghcr.io/labring-actions/cache"
 
 readonly IMAGE_TAG=${version?}
-readonly KUBE="${IMAGE_TAG%%-*}"
+readonly KUBE_RAW="${IMAGE_TAG%%-*}"
+readonly KUBE="${KUBE_RAW#v}"
 readonly KUBE_XY="${KUBE%.*}"
-if [[ "$sealoslatest" == latest ]]; then
+if [[ "${sealoslatest:-}" == latest ]]; then
   export sealosPatch="ghcr.io/labring/sealos-patch:latest"
   sealoslatest=$(until curl -sL "https://api.github.com/repos/labring/sealos/releases/latest" | grep tarball_url; do sleep 3; done | awk -F\" '{print $(NF-1)}' | awk -F/ '{print $NF}' | cut -dv -f2)
 fi
-readonly sealoslatest="${sealoslatest:-IMAGE_TAG#*-}"
+readonly sealoslatest="${sealoslatest:-${IMAGE_TAG#*-}}"
 readonly SEALOS=${sealoslatest?}
+readonly SEALOS_PATCH="${sealosPatch:-}"
 readonly SEALOS_XYZ="${SEALOS%%-*}"
-if [[ "${SEALOS_XYZ//./}" -le 433 ]] && [[ $KUBE_TYPE == k3s ]] && [[ -z "$sealosPatch" ]]; then
+if [[ "${SEALOS_XYZ//./}" -le 433 ]] && [[ $KUBE_TYPE == k3s ]] && [[ -z "$SEALOS_PATCH" ]]; then
   echo "INFO::skip $KUBE(build for k3s) when $SEALOS(sealos<=4.3.3)"
   exit
 fi
 readonly kube_major="${KUBE%.*}"
 readonly sealos_major="${SEALOS%%-*}"
 if [[ "${kube_major//./}" -ge 126 ]]; then
-  if ! [[ "${sealos_major//./}" -le 413 ]] || [[ -n "$sealosPatch" ]]; then
+  if ! [[ "${sealos_major//./}" -le 413 ]] || [[ -n "$SEALOS_PATCH" ]]; then
     echo "Verifying the availability of unstable"
   else
     echo "INFO::skip kube(>=1.26) building when sealos <= 4.1.3"
@@ -83,7 +85,7 @@ if grep k3s <<<"$KUBE"; then
   IMAGE_KUBE=k3s
 fi
 
-if ! [[ "$SEALOS" =~ ^[0-9\.]+[0-9]$ ]] || [[ -n "$sealosPatch" ]]; then
+if ! [[ "$SEALOS" =~ ^[0-9\.]+[0-9]$ ]] || [[ -n "$SEALOS_PATCH" ]]; then
   IMAGE_TAGS="v${KUBE%.*}-amd64,v${KUBE%.*}-arm64"
   IMAGE_PUSH_NAME=(
     "$IMAGE_HUB_REGISTRY/$IMAGE_HUB_REPO/$IMAGE_KUBE:v${KUBE%.*}-latest"
